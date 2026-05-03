@@ -1,0 +1,35 @@
+name = "usage-worker"
+main = "src/index.js"
+compatibility_date = "2026-04-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Daily reorder-reminder cron: 13:00 UTC = 8am US Eastern (9am during EDT).
+# Intentionally one hour before stocks-worker's 14:00 cron to spread load.
+[triggers]
+crons = ["0 13 * * *"]
+
+[vars]
+# Firebase project for the usage-tracker app (NOT the same project as stocks).
+# Public ID — already exposed in the app's firebase-init.js.
+FIREBASE_PROJECT_ID = "product-usage-37f1d"
+
+# Single-user (Path B) configuration. UID is public-equivalent (it's the
+# Firebase auth subject). To find yours: open Firebase console for this
+# project → Authentication → Users tab → copy the User UID column for
+# your account.
+OWNER_UID = "MZLlmqIYiZg4H9BLB3iJucfy9uY2"
+
+# Resend From-address. v0.1.0 ships with usage@stocks.bookhockeys.com so
+# we don't need a second verified domain at Resend (the existing
+# stocks.bookhockeys.com verification covers any local-part on that domain).
+SENDER_FROM = "Usage Tracker <usage@stocks.bookhockeys.com>"
+
+# Optional: an HTTP endpoint for manual test triggers. If you set
+# MANUAL_TRIGGER_KEY as a secret, you can hit /trigger?key=... to fire the
+# reminder logic without waiting for the cron. Useful for verifying
+# wiring during deployment.
+
+# Secrets — set via `wrangler secret put`, never committed:
+#   wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON   # service account JSON for product-usage-37f1d
+#   wrangler secret put RESEND_API_KEY                  # same key as stocks-worker (single Resend account)
+#   wrangler secret put MANUAL_TRIGGER_KEY              # optional — random string, used by /trigger endpoint
