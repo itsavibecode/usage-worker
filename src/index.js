@@ -216,6 +216,22 @@ function buildReminderEmail(reminders) {
     ? `Reorder reminder: ${reminders[0].product.productName || 'a product'}`
     : `Reorder reminders: ${n} products running low`;
 
+  // v0.2.0: app URL points at the canonical dev.rizzo.cc deployment
+  // (the github.io URL still works but dev.rizzo.cc is now the source-
+  // of-truth front-end).
+  const appUrl = 'https://dev.rizzo.cc/usage/';
+
+  // v0.2.0: short-date formatter for the estimated finish date column.
+  // "May 18" (current year) or "May 18, 2027" if not current year.
+  const formatFinishDate = (d) => {
+    if (!d || !Number.isFinite(d.getTime())) return null;
+    const now = new Date();
+    const opts = d.getFullYear() === now.getFullYear()
+      ? { month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', opts);
+  };
+
   const rows = reminders.map((r) => {
     const remaining = r.meanDays - r.currentDays;
     const status = r.pastDue
@@ -223,7 +239,19 @@ function buildReminderEmail(reminders) {
       : `~${remaining}d left`;
     const name = r.product.productName || '(unnamed)';
     const type = r.product.productType || '';
-    return { name, type, currentDays: r.currentDays, meanDays: r.meanDays, status, pastDue: r.pastDue };
+
+    // v0.2.0: estimated completion date — start date + this product type's
+    // mean lifespan. Past-due items show as "Expected to finish: <date>"
+    // even though that date is already in the past, which signals exactly
+    // how overdue the item is in plain calendar terms.
+    let finishLabel = null;
+    const start = parseLocalDate(r.product.startDate);
+    if (start && r.meanDays > 0) {
+      const finish = new Date(start.getTime() + r.meanDays * 86400000);
+      finishLabel = formatFinishDate(finish);
+    }
+
+    return { name, type, currentDays: r.currentDays, meanDays: r.meanDays, status, pastDue: r.pastDue, finishLabel };
   });
 
   const text = [
@@ -231,10 +259,15 @@ function buildReminderEmail(reminders) {
       ? `One product is running low based on your average lifespan history:`
       : `${n} products are running low based on your average lifespan history:`,
     '',
-    ...rows.map((r) => `• ${r.name}${r.type ? ' (' + r.type + ')' : ''}: ${r.currentDays}d of ~${r.meanDays}d avg — ${r.status}`),
+    ...rows.map((r) => {
+      const finishPart = r.finishLabel ? ` · expected ${r.finishLabel}` : '';
+      return `• ${r.name}${r.type ? ' (' + r.type + ')' : ''}: ${r.currentDays}d of ~${r.meanDays}d avg — ${r.status}${finishPart}`;
+    }),
     '',
     'Open the app to mark them finished or start a new bundle:',
-    'https://itsavibecode.github.io/usage/',
+    appUrl,
+    '',
+    'Manage your reminder email preference under Settings in the app.',
     '',
     '— Usage Tracker',
   ].join('\n');
@@ -256,26 +289,41 @@ function buildReminderEmail(reminders) {
         ${rows.map((r) => `
           <div style="border:1px solid #ecd9a9;border-radius:6px;padding:10px 14px;background:#fffdf6">
             <div style="font-weight:600;font-size:14px;margin-bottom:2px">${escapeHtml(r.name)}</div>
-            <div style="font-size:12px;color:#6b7390">
+            <div style="font-size:12px;color:#6b7390;margin-bottom:6px">
               ${escapeHtml(r.type)}${r.type ? ' · ' : ''}${r.currentDays}d of ~${r.meanDays}d avg
             </div>
-            <div style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
-              ${r.pastDue
-                ? 'background:#fbeaea;color:#c23b3b'
-                : 'background:#fff3d6;color:#8a5a00'}">
-              ${escapeHtml(r.status)}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
+                ${r.pastDue
+                  ? 'background:#fbeaea;color:#c23b3b'
+                  : 'background:#fff3d6;color:#8a5a00'}">
+                ${escapeHtml(r.status)}
+              </span>
+              ${r.finishLabel ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;background:#eef3ff;color:#2b5fd9">${escapeHtml(r.pastDue ? 'was due ' + r.finishLabel : 'expected ' + r.finishLabel)}</span>` : ''}
             </div>
           </div>`).join('')}
       </div>
       <p style="margin:18px 0 0;font-size:13px;line-height:1.5">
-        <a href="https://itsavibecode.github.io/usage/" style="color:#2b5fd9;text-decoration:none;font-weight:500">
-          Open Usage Tracker →
+        <a href="${appUrl}" style="display:inline-block;background:#2b5fd9;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:600;font-size:13px">
+          Open Usage Tracker
         </a>
       </p>
     </div>
-    <div style="padding:12px 24px;border-top:1px solid #e3e7ef;font-size:11px;color:#6b7390;display:flex;justify-content:space-between">
-      <span>Usage Tracker · weekly digest</span>
-      <span>You're getting this because you turned on email reminders. Open the app to disable.</span>
+    <!-- v0.2.0: footer rebuilt as a stacked vertical block with a clear
+         brand line, a one-sentence rationale, and a settings hint. Inline
+         styles only since email clients strip class-based CSS. Center-
+         aligned so it reads as a quiet sign-off rather than a status bar. -->
+    <div style="padding:18px 24px;border-top:1px solid #e3e7ef;background:#f8fafe;text-align:center">
+      <div style="font-size:13px;font-weight:600;color:#1a2238;letter-spacing:-0.005em;margin-bottom:6px">
+        Usage Tracker
+      </div>
+      <div style="font-size:11px;color:#6b7390;line-height:1.55;max-width:380px;margin:0 auto">
+        You're getting this because you opted in to reorder reminders.
+        Open the app and visit <strong style="color:#1a2238;font-weight:600">Settings</strong> to change your preferences or turn this off.
+      </div>
+      <div style="font-size:11px;color:#9ba5bf;margin-top:10px">
+        <a href="${appUrl}" style="color:#9ba5bf;text-decoration:none">${escapeHtml(appUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>
+      </div>
     </div>
   </div>
 </body></html>`;
