@@ -1,0 +1,12 @@
+3 products are running low based on your average lifespan history:
+
+• Old Spice High Endurance Pure Sport Deodorant (Underarm): 88d of ~92d avg — ~4d left · expected May 22
+• Crest 3D White Luminous Mint (Toothpaste): 95d of ~107d avg — ~12d left · expected May 30
+• Reach Mint Waxed Floss (Floss): 142d of ~140d avg — 2d past avg · expected May 16
+
+Open the app to mark them finished or start a new bundle:
+https://dev.rizzo.cc/usage/
+
+Manage your reminder email preference under Settings in the app.
+
+— Usage Tracker

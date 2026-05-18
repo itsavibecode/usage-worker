@@ -1,0 +1,22 @@
+3 of your tracked brands have open FDA recalls:
+
+• Old Spice [Class II · moderate] · issued Apr 15
+  Old Spice High Endurance Antiperspirant & Deodorant Stick, Pure Sport scent, 3.0 oz, lots beginning with 47XYZ
+  Reason: Voluntary recall due to elevated benzene levels detected in routine testing. Long-term exposure to benzene is known to increase cancer risk.
+  https://www.accessdata.fda.gov/scripts/ires/index.cfm?Product=D-1234-2024
+• Crest [Class II · moderate] · issued Apr 2
+  Crest 3D White Luminous Mint Toothpaste, 3.7 oz tubes, expiration dates 2027-09 through 2028-03
+  Reason: Product label does not match formulation — fluoride concentration is outside the labeled range. Voluntary recall, no adverse events reported.
+  https://www.accessdata.fda.gov/scripts/ires/index.cfm?Product=D-5678-2024
+• Sensodyne [Class I · severe] · issued Jan 8
+  Sensodyne Pronamel Gentle Whitening Toothpaste, 4.0 oz, lots manufactured between Jan and Mar 2026
+  Reason: Potential microbial contamination identified in a single lot during stability testing. Use of contaminated product may pose serious risk to immunocompromised individuals.
+  https://www.accessdata.fda.gov/scripts/ires/index.cfm?Product=D-9012-2024
+
+Brand-only matches are imprecise — always verify on the FDA page
+before assuming a specific product is affected.
+
+Open the app to dismiss alerts or change your preferences:
+https://dev.rizzo.cc/usage/
+
+— Usage Tracker

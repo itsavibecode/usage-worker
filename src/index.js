@@ -210,7 +210,9 @@ function computeReminders(products) {
 // client renders something reasonable.
 // ═════════════════════════════════════════════════════════════════════
 
-function buildReminderEmail(reminders) {
+// v0.3.0: exported so scripts/generate-previews.mjs can render a static
+// HTML preview file without needing the cron / Firestore stack.
+export function buildReminderEmail(reminders) {
   const n = reminders.length;
   const subject = n === 1
     ? `Reorder reminder: ${reminders[0].product.productName || 'a product'}`
@@ -319,6 +321,170 @@ function buildReminderEmail(reminders) {
       </div>
       <div style="font-size:11px;color:#6b7390;line-height:1.55;max-width:380px;margin:0 auto">
         You're getting this because you opted in to reorder reminders.
+        Open the app and visit <strong style="color:#1a2238;font-weight:600">Settings</strong> to change your preferences or turn this off.
+      </div>
+      <div style="font-size:11px;color:#9ba5bf;margin-top:10px">
+        <a href="${appUrl}" style="color:#9ba5bf;text-decoration:none">${escapeHtml(appUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>
+      </div>
+    </div>
+  </div>
+</body></html>`;
+
+  return { subject, html, text };
+}
+
+// v0.3.0: recall-alerts email template. NOT YET WIRED INTO A CRON —
+// this is the deferred Full v2 of the recall feature documented in
+// project_usage_tracker.md "Planned features". Available here as an
+// exported function so the upcoming weekly recall-check cron can call
+// it once that's built, and so the preview generator can render a
+// pixel-accurate static HTML file for visual review.
+//
+// Input shape mirrors what checkRecalls() returns in the in-app
+// banner (app.js v0.21.0):
+//   reminderNumber, brand, productDescription, reason, date (YYYYMMDD),
+//   classification ('Class I' | 'Class II' | 'Class III'), recallingFirm,
+//   fdaUrl.
+export function buildRecallEmail(recalls) {
+  const n = recalls.length;
+  const subject = n === 1
+    ? `Recall alert: ${recalls[0].brand || 'a tracked brand'}`
+    : `Recall alerts: ${n} of your brands have open FDA recalls`;
+
+  // Same canonical app URL as the reminder email — both point at
+  // dev.rizzo.cc/usage since v0.2.0.
+  const appUrl = 'https://dev.rizzo.cc/usage/';
+
+  // Parse FDA's YYYYMMDD date format → human-readable. Re-derived
+  // inline so we don't import the helper used by computeReminders.
+  const parseFdaDate = (s) => {
+    if (!s) return null;
+    const m = /^(\d{4})(\d{2})(\d{2})$/.exec(String(s).trim());
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  };
+  const formatDate = (d) => {
+    if (!d || !Number.isFinite(d.getTime())) return null;
+    const now = new Date();
+    const opts = d.getFullYear() === now.getFullYear()
+      ? { month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', opts);
+  };
+
+  // Severity → tier label + CSS color triplet for the card stripe + pill.
+  const sevInfo = (classification) => {
+    const c = String(classification || '').toLowerCase();
+    if (c.includes('class i') && !c.includes('class ii') && !c.includes('class iii')) {
+      return {
+        label: 'Class I · severe',
+        // Most serious — red.
+        stripe: '#c23b3b',
+        pillBg: '#fbeaea',
+        pillColor: '#c23b3b',
+      };
+    }
+    if (c.includes('class ii')) {
+      return {
+        label: 'Class II · moderate',
+        stripe: '#d98f2b',
+        pillBg: '#fff3d6',
+        pillColor: '#8a5a00',
+      };
+    }
+    if (c.includes('class iii')) {
+      return {
+        label: 'Class III · low',
+        stripe: '#2b5fd9',
+        pillBg: '#e3edff',
+        pillColor: '#2b5fd9',
+      };
+    }
+    return {
+      label: 'Recall',
+      stripe: '#d98f2b',
+      pillBg: '#fff3d6',
+      pillColor: '#8a5a00',
+    };
+  };
+
+  const rows = recalls.map((r) => {
+    const sev = sevInfo(r.classification);
+    const dateStr = formatDate(parseFdaDate(r.date));
+    // Truncate the product description so the card stays scannable.
+    const desc = String(r.productDescription || '');
+    const truncDesc = desc.length > 160 ? desc.slice(0, 160) + '…' : desc;
+    return {
+      brand: r.brand || '',
+      productDescription: truncDesc,
+      reason: r.reason || '',
+      dateStr,
+      sev,
+      fdaUrl: r.fdaUrl || '',
+    };
+  });
+
+  const text = [
+    n === 1
+      ? `One of your tracked brands has an open FDA recall:`
+      : `${n} of your tracked brands have open FDA recalls:`,
+    '',
+    ...rows.map((r) => {
+      const datePart = r.dateStr ? ` · issued ${r.dateStr}` : '';
+      const sevPart = r.sev.label ? ` [${r.sev.label}]` : '';
+      const linkPart = r.fdaUrl ? `\n  ${r.fdaUrl}` : '';
+      return `• ${r.brand}${sevPart}${datePart}\n  ${r.productDescription}\n  Reason: ${r.reason}${linkPart}`;
+    }),
+    '',
+    'Brand-only matches are imprecise — always verify on the FDA page',
+    'before assuming a specific product is affected.',
+    '',
+    'Open the app to dismiss alerts or change your preferences:',
+    appUrl,
+    '',
+    '— Usage Tracker',
+  ].join('\n');
+
+  const html = `<!doctype html>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f5f7fb;margin:0;padding:24px;color:#1a2238">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e3e7ef;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(20,30,60,0.08)">
+    <div style="padding:20px 24px;border-bottom:1px solid #e3e7ef;background:linear-gradient(135deg,#fdf4f4 0%,#fff8f8 100%)">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#c23b3b;font-weight:700;margin-bottom:4px">Open FDA recalls</div>
+      <h1 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em">
+        ${escapeHtml(n === 1 ? 'A brand in your tracker has an open recall' : `${n} brands in your tracker have open recalls`)}
+      </h1>
+    </div>
+    <div style="padding:16px 24px">
+      <p style="margin:0 0 14px;font-size:14px;color:#6b7390;line-height:1.5">
+        Brand-only matches are imprecise — these recalls were issued for one of your tracked brands, but the specific product affected may not be the one on your shelf. Always verify on the FDA page before acting.
+      </p>
+      <div style="display:grid;gap:8px">
+        ${rows.map((r) => `
+          <div style="border:1px solid #e3e7ef;border-left:4px solid ${r.sev.stripe};border-radius:6px;padding:10px 14px;background:#fff">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;background:${r.sev.pillBg};color:${r.sev.pillColor}">
+                ${escapeHtml(r.sev.label)}
+              </span>
+              ${r.dateStr ? `<span style="font-size:11px;color:#6b7390">Issued ${escapeHtml(r.dateStr)}</span>` : ''}
+            </div>
+            <div style="font-weight:600;font-size:14px;margin-bottom:4px">${escapeHtml(r.brand)}</div>
+            <div style="font-size:12px;color:#6b7390;line-height:1.45;margin-bottom:6px">${escapeHtml(r.productDescription)}</div>
+            <div style="font-size:12px;color:#1a2238;line-height:1.5;margin-bottom:8px">${escapeHtml(r.reason)}</div>
+            ${r.fdaUrl ? `<a href="${escapeHtml(r.fdaUrl)}" style="font-size:12px;color:#2b5fd9;text-decoration:none;font-weight:500">View FDA details &rarr;</a>` : ''}
+          </div>`).join('')}
+      </div>
+      <p style="margin:18px 0 0;font-size:13px;line-height:1.5">
+        <a href="${appUrl}" style="display:inline-block;background:#2b5fd9;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:600;font-size:13px">
+          Open Usage Tracker
+        </a>
+      </p>
+    </div>
+    <div style="padding:18px 24px;border-top:1px solid #e3e7ef;background:#f8fafe;text-align:center">
+      <div style="font-size:13px;font-weight:600;color:#1a2238;letter-spacing:-0.005em;margin-bottom:6px">
+        Usage Tracker
+      </div>
+      <div style="font-size:11px;color:#6b7390;line-height:1.55;max-width:380px;margin:0 auto">
+        You're getting this because you opted in to recall alerts.
         Open the app and visit <strong style="color:#1a2238;font-weight:600">Settings</strong> to change your preferences or turn this off.
       </div>
       <div style="font-size:11px;color:#9ba5bf;margin-top:10px">
