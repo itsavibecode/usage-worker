@@ -182,11 +182,28 @@ function computeReminders(products) {
     meanLifespan.set(k, mean);
   }
 
+  // v0.3.1: skip reorder reminders for productTypes that already have an
+  // inventory item on hand. The point of the reminder is "buy more before
+  // you run out" — if the user has an unopened backup of the same
+  // category sitting in inventory, they have a backup ready to start
+  // when the current one finishes. Pestering them to reorder would be
+  // wrong. Matched by productType (the category), not by exact product/
+  // UPC, because the reminder system already groups by type and the
+  // user mental model is "do I have any X waiting?".
+  const typesWithInventory = new Set();
+  for (const p of products) {
+    if (isInventory(p) && p.productType) {
+      typesWithInventory.add(p.productType);
+    }
+  }
+
   // For each active, check ratio against its type's mean.
   const out = [];
   for (const p of products) {
     if (!isActive(p)) continue;
     const k = p.productType || '';
+    // v0.3.1: backup-in-inventory check (see comment above).
+    if (typesWithInventory.has(k)) continue;
     const mean = meanLifespan.get(k);
     if (mean == null) continue;
     const dur = calcDuration(p);
