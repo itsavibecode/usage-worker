@@ -27,10 +27,13 @@ FIREBASE_PROJECT_ID = "product-usage-37f1d"
 # your account.
 OWNER_UID = "MZLlmqIYiZg4H9BLB3iJucfy9uY2"
 
-# Resend From-address. v0.1.0 ships with usage@stocks.bookhockeys.com so
-# we don't need a second verified domain at Resend (the existing
-# stocks.bookhockeys.com verification covers any local-part on that domain).
-SENDER_FROM = "Usage Tracker <usage@stocks.bookhockeys.com>"
+# Resend From-address. v0.3.2: moved from usage@stocks.bookhockeys.com to the
+# dedicated notifications domain notify.rizzo.cc (verified in the same shared
+# Resend account; any local-part works on a verified domain). PawPrints already
+# sends from noreply@notify.rizzo.cc on this domain; we keep the app-specific
+# "usage@" local-part so sends are distinguishable in Resend logs, with the
+# "Usage Tracker" display name differentiating it in the inbox.
+SENDER_FROM = "Usage Tracker <usage@notify.rizzo.cc>"
 
 # Optional: an HTTP endpoint for manual test triggers. If you set
 # MANUAL_TRIGGER_KEY as a secret, you can hit /trigger?key=... to fire the
