@@ -182,18 +182,22 @@ function computeReminders(products) {
     meanLifespan.set(k, mean);
   }
 
-  // v0.3.1: skip reorder reminders for productTypes that already have an
-  // inventory item on hand. The point of the reminder is "buy more before
-  // you run out" — if the user has an unopened backup of the same
-  // category sitting in inventory, they have a backup ready to start
-  // when the current one finishes. Pestering them to reorder would be
-  // wrong. Matched by productType (the category), not by exact product/
-  // UPC, because the reminder system already groups by type and the
-  // user mental model is "do I have any X waiting?".
-  const typesWithInventory = new Set();
+  // v0.3.3: suppress a reorder reminder only while there's a spare beyond the
+  // unit running low — i.e. 2+ on-hand units of the type (active + inventory;
+  // finished don't count). Once you're down to your last unit (on-hand == 1),
+  // the reminder fires so you know to restock before you're empty.
+  //
+  // This refines v0.3.1, which suppressed whenever ANY inventory of the type
+  // existed. That silenced every type the user keeps a rolling backup of —
+  // permanently — so no reminder ever fired for their highest-turnover items.
+  // Counting on-hand units instead means the reminder returns as soon as the
+  // backup becomes the active one with nothing left behind it. Matched by
+  // productType (the category), consistent with how the whole reminder system
+  // groups.
+  const onHandByType = new Map();
   for (const p of products) {
-    if (isInventory(p) && p.productType) {
-      typesWithInventory.add(p.productType);
+    if ((isActive(p) || isInventory(p)) && p.productType) {
+      onHandByType.set(p.productType, (onHandByType.get(p.productType) || 0) + 1);
     }
   }
 
@@ -202,8 +206,8 @@ function computeReminders(products) {
   for (const p of products) {
     if (!isActive(p)) continue;
     const k = p.productType || '';
-    // v0.3.1: backup-in-inventory check (see comment above).
-    if (typesWithInventory.has(k)) continue;
+    // v0.3.3: only suppress while a spare exists beyond this unit (>=2 on hand).
+    if ((onHandByType.get(k) || 0) >= 2) continue;
     const mean = meanLifespan.get(k);
     if (mean == null) continue;
     const dur = calcDuration(p);
