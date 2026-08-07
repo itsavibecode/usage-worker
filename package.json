@@ -1,6 +1,6 @@
 {
   "name": "usage-worker",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "private": true,
   "description": "Cloudflare Worker backend for the usage-tracker app — daily cron that emails reorder reminders for products approaching their average lifespan. Service-account-authenticated Firestore reads + Resend for email.",
   "type": "module",

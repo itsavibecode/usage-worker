@@ -49,11 +49,27 @@ export default {
         return json({ error: e.message, stack: e.stack }, 500);
       }
     }
+    // v0.3.4: deliverability test — sends a clearly-labelled sample email
+    // regardless of thresholds/cooldown. Same auth as /trigger.
+    if (url.pathname === '/test-email' && request.method === 'POST') {
+      if (!env.MANUAL_TRIGGER_KEY) {
+        return json({ error: 'manual trigger disabled (set MANUAL_TRIGGER_KEY secret to enable)' }, 503);
+      }
+      if (request.headers.get('x-trigger-key') !== env.MANUAL_TRIGGER_KEY) {
+        return json({ error: 'unauthorized' }, 401);
+      }
+      try {
+        return json(await sendTestEmail(env));
+      } catch (e) {
+        return json({ error: e.message, stack: e.stack }, 500);
+      }
+    }
     if (url.pathname === '/' || url.pathname === '') {
       return json({
         worker: 'usage-worker',
         purpose: 'Daily reorder-reminder emails for the usage-tracker app',
         cron: 'daily at 13:00 UTC',
+        endpoints: ['POST /trigger', 'POST /test-email'],
       });
     }
     return json({ error: 'not found' }, 404);
@@ -134,6 +150,110 @@ async function runDailyReminders(env) {
     reminderCount: reminders.length,
     resendId: sendResult && sendResult.id,
   };
+}
+
+/* v0.3.4 — deliverability test.
+ *
+ * runDailyReminders only sends when something actually crosses the reorder
+ * threshold, so it can't answer "does email from this sender reach me?" on a
+ * day when nothing qualifies. This does: it resolves the same recipient, uses
+ * the same Resend path and the same template, and sends regardless of
+ * thresholds.
+ *
+ * Deliberate differences from the real run:
+ *   - Bypasses the reorderEmailsEnabled opt-in (but REPORTS it, so a disabled
+ *     opt-in is visible as the reason the cron would stay silent).
+ *   - Bypasses the 7-day cooldown.
+ *   - Does NOT stamp lastReorderEmailSentAt, so testing can't accidentally
+ *     suppress a genuine reminder for the next week.
+ *   - Subject is [TEST]-prefixed and the body carries an explanatory banner.
+ */
+async function sendTestEmail(env) {
+  const uid = env.OWNER_UID;
+  if (!uid || uid === 'REPLACE_WITH_YOUR_UID') {
+    return { ok: false, reason: 'OWNER_UID not configured in wrangler.toml' };
+  }
+  const accessToken = await getServiceAccountToken(env);
+
+  const prefsDoc = await firestoreGetDoc(env, accessToken, `users/${uid}/meta/emailPrefs`);
+  const prefs = prefsDoc && prefsDoc.fields ? fsFieldsToJs(prefsDoc.fields) : {};
+
+  const email = prefs.notifyEmail || (await getUserEmail(env, accessToken, uid));
+  if (!email) {
+    return { ok: false, reason: 'no email available for user (set notifyEmail in prefs or ensure Firebase Auth has one)' };
+  }
+
+  const products = await firestoreListDocs(env, accessToken, `users/${uid}/products`);
+
+  // Prefer real reminders so the test reflects actual data. If nothing
+  // qualifies today, fall back to the closest-to-due actives so the email
+  // still shows the user's own products rather than invented ones.
+  let reminders = computeReminders(products);
+  let source = 'real reminders';
+  if (reminders.length === 0) {
+    reminders = closestActives(products, 3);
+    source = reminders.length ? 'sample (nothing currently qualifies)' : 'none';
+  }
+  if (reminders.length === 0) {
+    return { ok: false, reason: 'no active products to build a sample email from', productCount: products.length };
+  }
+
+  const { subject, html, text } = buildReminderEmail(reminders, { test: true });
+  const sendResult = await sendReminderEmail(env, { to: email, subject, html, text });
+
+  return {
+    ok: true,
+    sent: true,
+    test: true,
+    to: email,
+    from: env.SENDER_FROM,
+    itemsShown: reminders.length,
+    source,
+    resendId: sendResult && sendResult.id,
+    productCount: products.length,
+    // Surfaced so a silent cron is diagnosable from this one call.
+    reorderEmailsEnabled: !!prefs.reorderEmailsEnabled,
+    noteIfDisabled: prefs.reorderEmailsEnabled
+      ? undefined
+      : 'Test sent, but reorderEmailsEnabled is FALSE — the daily cron will not send. Turn on email reminders in the app Settings.',
+    cooldownUntouched: true,
+  };
+}
+
+// Actives ranked by how far through their type's mean lifespan they are, so a
+// sample email shows the most relevant products. Falls back to raw duration
+// for types without enough finished history to have a mean.
+function closestActives(products, limit) {
+  const lifespans = new Map();
+  for (const p of products) {
+    if (!isFinished(p)) continue;
+    const d = calcDuration(p);
+    if (d == null || !Number.isFinite(d) || d <= 0) continue;
+    const k = p.productType || '';
+    if (!k) continue;
+    if (!lifespans.has(k)) lifespans.set(k, []);
+    lifespans.get(k).push(d);
+  }
+  const meanByType = new Map();
+  for (const [k, arr] of lifespans) {
+    meanByType.set(k, arr.reduce((s, v) => s + v, 0) / arr.length);
+  }
+  const out = [];
+  for (const p of products) {
+    if (!isActive(p)) continue;
+    const dur = calcDuration(p);
+    if (dur == null) continue;
+    const mean = meanByType.get(p.productType || '') ?? dur;
+    out.push({
+      product: p,
+      currentDays: dur,
+      meanDays: Math.round(mean),
+      ratio: mean > 0 ? dur / mean : 0,
+      pastDue: dur > mean,
+    });
+  }
+  out.sort((a, b) => b.ratio - a.ratio);
+  return out.slice(0, limit);
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -233,11 +353,16 @@ function computeReminders(products) {
 
 // v0.3.0: exported so scripts/generate-previews.mjs can render a static
 // HTML preview file without needing the cron / Firestore stack.
-export function buildReminderEmail(reminders) {
+// v0.3.4: `opts.test` renders the same email with a [TEST] subject prefix and
+// an explanatory banner, so a deliverability check is unmistakable in the
+// inbox and can never be mistaken for a real reorder nudge.
+export function buildReminderEmail(reminders, opts = {}) {
   const n = reminders.length;
-  const subject = n === 1
+  const isTest = !!opts.test;
+  const baseSubject = n === 1
     ? `Reorder reminder: ${reminders[0].product.productName || 'a product'}`
     : `Reorder reminders: ${n} products running low`;
+  const subject = isTest ? `[TEST] ${baseSubject}` : baseSubject;
 
   // v0.2.0: app URL points at the canonical dev.rizzo.cc deployment
   // (the github.io URL still works but dev.rizzo.cc is now the source-
@@ -278,6 +403,12 @@ export function buildReminderEmail(reminders) {
   });
 
   const text = [
+    ...(isTest
+      ? ['*** THIS IS A TEST EMAIL ***',
+         'Sent manually to confirm reminder delivery is working. The items below',
+         'are examples — no action needed.',
+         '']
+      : []),
     n === 1
       ? `One product is running low based on your average lifespan history:`
       : `${n} products are running low based on your average lifespan history:`,
@@ -298,6 +429,9 @@ export function buildReminderEmail(reminders) {
   const html = `<!doctype html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f5f7fb;margin:0;padding:24px;color:#1a2238">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e3e7ef;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(20,30,60,0.08)">
+    ${isTest ? `<div style="padding:12px 24px;background:#eef3ff;border-bottom:1px solid #cfdcff;color:#2b5fd9;font-size:13px;line-height:1.5">
+      <strong>This is a test email.</strong> It was sent manually to confirm reminder delivery is working. The items below are examples — no action needed.
+    </div>` : ''}
     <div style="padding:20px 24px;border-bottom:1px solid #e3e7ef;background:linear-gradient(135deg,#fff8e6 0%,#fffaf0 100%)">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#d98f2b;font-weight:700;margin-bottom:4px">Reorder soon</div>
       <h1 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em">

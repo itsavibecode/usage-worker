@@ -27,13 +27,22 @@ FIREBASE_PROJECT_ID = "product-usage-37f1d"
 # your account.
 OWNER_UID = "MZLlmqIYiZg4H9BLB3iJucfy9uY2"
 
-# Resend From-address. v0.3.2: moved from usage@stocks.bookhockeys.com to the
-# dedicated notifications domain notify.rizzo.cc (verified in the same shared
-# Resend account; any local-part works on a verified domain). PawPrints already
-# sends from noreply@notify.rizzo.cc on this domain; we keep the app-specific
-# "usage@" local-part so sends are distinguishable in Resend logs, with the
-# "Usage Tracker" display name differentiating it in the inbox.
-SENDER_FROM = "Usage Tracker <usage@notify.rizzo.cc>"
+# Resend From-address.
+#
+# v0.3.5: REVERTED to stocks.bookhockeys.com. v0.3.2 switched this to
+# notify.rizzo.cc on the assumption that the domain was verified in the same
+# Resend account this worker's RESEND_API_KEY belongs to — because PawPrints
+# sends from noreply@notify.rizzo.cc. That assumption was wrong: Resend returns
+#   403 "The notify.rizzo.cc domain is not verified"
+# for this key, so PawPrints must be on a different Resend account/key. The
+# switch silently broke every send from 2026-08-06 until it was caught by the
+# /test-email endpoint added in v0.3.4.
+#
+# stocks.bookhockeys.com IS verified for this key (it sent successfully from
+# v0.1.0 through v0.3.1). To move to notify.rizzo.cc later, either verify that
+# domain in THIS Resend account, or set this worker's RESEND_API_KEY to the key
+# from the account where it's already verified — then flip this line back.
+SENDER_FROM = "Usage Tracker <usage@stocks.bookhockeys.com>"
 
 # Optional: an HTTP endpoint for manual test triggers. If you set
 # MANUAL_TRIGGER_KEY as a secret, you can hit /trigger?key=... to fire the
