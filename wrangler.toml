@@ -29,20 +29,20 @@ OWNER_UID = "MZLlmqIYiZg4H9BLB3iJucfy9uY2"
 
 # Resend From-address.
 #
-# v0.3.5: REVERTED to stocks.bookhockeys.com. v0.3.2 switched this to
-# notify.rizzo.cc on the assumption that the domain was verified in the same
-# Resend account this worker's RESEND_API_KEY belongs to — because PawPrints
-# sends from noreply@notify.rizzo.cc. That assumption was wrong: Resend returns
-#   403 "The notify.rizzo.cc domain is not verified"
-# for this key, so PawPrints must be on a different Resend account/key. The
-# switch silently broke every send from 2026-08-06 until it was caught by the
-# /test-email endpoint added in v0.3.4.
+# v0.3.6: notify.rizzo.cc, now that RESEND_API_KEY points at the Resend account
+# where that domain is verified (the same account clover-worker and
+# pawprints-worker use). The app-specific "usage@" local-part keeps sends
+# distinguishable in the Resend log from Clover's and PawPrints' noreply@.
 #
-# stocks.bookhockeys.com IS verified for this key (it sent successfully from
-# v0.1.0 through v0.3.1). To move to notify.rizzo.cc later, either verify that
-# domain in THIS Resend account, or set this worker's RESEND_API_KEY to the key
-# from the account where it's already verified — then flip this line back.
-SENDER_FROM = "Usage Tracker <usage@stocks.bookhockeys.com>"
+# History worth keeping: v0.3.2 set this to notify.rizzo.cc while the key still
+# belonged to the stocks.bookhockeys.com account, so Resend rejected every send
+# with 403 "domain is not verified" and the breakage sat unnoticed — the worker
+# only calls Resend when something crosses the reorder threshold. v0.3.5
+# reverted it; v0.3.6 restores it properly with the matching key.
+#
+# The rule this cost us: SENDER_FROM and RESEND_API_KEY must move together, and
+# a sender change isn't "done" until POST /test-email returns a real resendId.
+SENDER_FROM = "Usage Tracker <usage@notify.rizzo.cc>"
 
 # Optional: an HTTP endpoint for manual test triggers. If you set
 # MANUAL_TRIGGER_KEY as a secret, you can hit /trigger?key=... to fire the
